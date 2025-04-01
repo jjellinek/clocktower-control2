@@ -4,7 +4,7 @@
 // - WS2812 LED control for up to 20 players (3 LEDs each)
 // - ST7789 color LCD display (172x320) using Adafruit libraries
 // - WiFi setup with fallback AP mode
-// - Web server to control game state and player statuses
+// - Web server with AJAX for responsive control without page refreshes
 // - Persistent player states and names using SPIFFS
 
 #include <Arduino.h>
@@ -26,8 +26,6 @@
 #define TFT_MOSI  6  // GPIO6
 #define TFT_SCLK  7  // GPIO7
 #define TFT_BL   22  // GPIO22 backlight
-// SD Card (Not used)
-// #define SD_CS    4   // GPIO4 for SD Card
 
 // Initialize ST7789 display (using hardware SPI)
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
@@ -96,7 +94,6 @@ bool updateWinLine = true;
 bool updatePlayerCount = true;
 
 // Initialize display
-// Initialize the ST7789 display
 void setupDisplay() {
   pinMode(TFT_BL, OUTPUT);
   digitalWrite(TFT_BL, HIGH);
@@ -224,30 +221,454 @@ void updateLEDs() {
   FastLED.show();
 }
 
-String generateControlPage() {
-  String html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>";
-  html += ".player{display:inline-block;margin:10px;padding:10px;border:1px solid #ccc;width:120px; border-radius:5px;}";
-  html += "button{width:100%;height:40px; border-radius:5px;} .green{background:#0f0;} .blue{background:#00f;color:#fff;} .purple{background:#808;color:#fff;} .yellow{background:#ff0;} .inactive{background:#ddd;} .ended-red{background:#f00;color:#fff;} .ended-blue{background:#00f;color:#fff;}";
-  html += "body{font-family:Arial,sans-serif; max-width:1200px; margin:0 auto; padding:10px;}";
-  html += ".controls{margin-bottom:20px; padding:10px; background:#f5f5f5; border-radius:5px;}";
-  html += "</style></head><body><h1>Blood on the Clocktower</h1><div class='controls'>";
-  
-  if (!gameStarted && !gameEnded) {
-    html += "<form action='/start'><button type='submit'>Start Game</button></form>";
-  }
-  if (gameStarted && !gameEnded) {
-    html += "<form action='/reset' onsubmit=\"return confirm('Are you sure you want to reset the game?')\"><button type='submit'>Reset Game</button></form>";
-    html += "<form action='/end' method='get'><input type='hidden' name='result' value='good'><button type='submit'>Good Wins</button></form>";
-    html += "<form action='/end' method='get'><input type='hidden' name='result' value='evil'><button type='submit'>Evil Wins</button></form>";
-  }
-  if (gameEnded) {
-    html += "<form action='/reset' onsubmit=\"return confirm('Are you sure you want to reset the game?')\"><button type='submit'>Reset Game</button></form>";
-  }
-  html += "<p style='font-weight:bold;'>Game status: ";
-  if (gameEnded) html += evilWon ? "EVIL WON" : "GOOD WON";
-  else html += gameStarted ? "IN PROGRESS" : "NOT STARTED";
-  html += "</p>";
+String getHTMLStyles() {
+  return R"(
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      body {
+        background-color: #121212;
+        color: #f0f0f0;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        text-align: center;
+        color: #bb5555;
+        margin-bottom: 30px;
+        font-family: 'Times New Roman', serif;
+        font-size: 2.5em;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      }
+      .controls {
+        background-color: #1e1e1e;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      }
+      .game-stats {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        margin: 20px 0;
+      }
+      .stat-box {
+        background-color: #2a2a2a;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 5px;
+        flex: 1 0 200px;
+      }
+      .stat-box h3 {
+        margin-top: 0;
+        color: #bb9b55;
+        border-bottom: 1px solid #444;
+        padding-bottom: 8px;
+      }
+      .player-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 15px;
+      }
+      .player {
+        background-color: #2a2a2a;
+        border-radius: 8px;
+        padding: 15px;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+      .player:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      }
+      .player-name {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        border: none;
+        border-radius: 4px;
+        background-color: #3a3a3a;
+        color: #f0f0f0;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background-color 0.3s, transform 0.2s;
+        margin: 5px 0;
+        width: 100%;
+      }
+      .btn:hover {
+        transform: scale(1.05);
+      }
+      .btn-primary {
+        background-color: #555fbb;
+        color: white;
+      }
+      .btn-danger {
+        background-color: #bb5555;
+        color: white;
+      }
+      .btn-success {
+        background-color: #55bb55;
+        color: white;
+      }
+      .btn-warning {
+        background-color: #bbbb55;
+        color: black;
+      }
+      .btn-inactive {
+        background-color: #444;
+        color: #ddd;
+      }
+      .status-green {
+        background-color: #1a472a;
+        border: 2px solid #2a623d;
+      }
+      .status-blue {
+        background-color: #1a3a5f;
+        border: 2px solid #2a5a8f;
+      }
+      .status-purple {
+        background-color: #3a1a5f;
+        border: 2px solid #5a2a8f;
+      }
+      .status-yellow {
+        background-color: #5a4a1a;
+        border: 2px solid #8a7a2a;
+      }
+      .status-evil {
+        background-color: #5a1a1a;
+        border: 2px solid #8a2a2a;
+      }
+      .status-good {
+        background-color: #1a3a5f;
+        border: 2px solid #2a5a8f;
+      }
+      .status-inactive {
+        background-color: #2a2a2a;
+        border: 2px solid #3a3a3a;
+        opacity: 0.7;
+      }
+      .status-btn {
+        color: white;
+        font-weight: bold;
+      }
+      .traveller-checkbox {
+        margin: 10px 0;
+      }
+      #notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px;
+        border-radius: 5px;
+        background-color: #44bb44;
+        color: white;
+        z-index: 100;
+        transform: translateX(200%);
+        transition: transform 0.5s ease;
+      }
+      #notification.show {
+        transform: translateX(0);
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 600px) {
+        .player-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .controls button {
+          margin: 5px 0;
+        }
+      }
+    </style>
+  )";
+}
 
+String getHTMLJavaScript() {
+  return R"(
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Functions to show notifications
+        function showNotification(message, isSuccess = true) {
+          const notification = document.getElementById('notification');
+          notification.textContent = message;
+          notification.style.backgroundColor = isSuccess ? '#44bb44' : '#bb4444';
+          notification.classList.add('show');
+          setTimeout(() => {
+            notification.classList.remove('show');
+          }, 3000);
+        }
+        
+        // Function to refresh game state
+        function refreshGameState() {
+          fetch('/api/state')
+            .then(response => response.json())
+            .then(data => {
+              // Update game status
+              document.getElementById('game-status').textContent = data.gameStatus;
+              
+              // Update counts
+              document.getElementById('alive-count').textContent = data.aliveCount;
+              document.getElementById('votes-needed').textContent = data.votesNeeded;
+              document.getElementById('votes-available').textContent = data.votesAvailable;
+              
+              // Update role breakdown
+              document.getElementById('townsfolk-count').textContent = data.townsfolk;
+              document.getElementById('outsiders-count').textContent = data.outsiders;
+              document.getElementById('minions-count').textContent = data.minions;
+              
+              // Update player display based on game state
+              document.querySelectorAll('.player').forEach((player, index) => {
+                // Only show active players during game
+                if (data.gameStarted && data.playerStates[index] === 0) {
+                  player.classList.add('hidden');
+                } else {
+                  player.classList.remove('hidden');
+                  
+                  // Update status class
+                  player.className = player.className.replace(/status-\w+/g, '');
+                  
+                  if (data.gameEnded) {
+                    player.classList.add(data.evilWon ? 'status-evil' : 'status-good');
+                  } else {
+                    if (data.playerStates[index] === 1) {
+                      player.classList.add(data.isTraveller[index] ? 'status-yellow' : 'status-green');
+                    } else if (data.playerStates[index] === 2) {
+                      player.classList.add('status-blue');
+                    } else if (data.playerStates[index] === 3) {
+                      player.classList.add('status-purple');
+                    } else {
+                      player.classList.add('status-inactive');
+                    }
+                  }
+                  
+                  // Update player name displays
+                  const nameBtn = player.querySelector('.status-btn');
+                  if (nameBtn) {
+                    nameBtn.textContent = data.playerNames[index];
+                  }
+                  
+                  // Update traveller checkbox
+                  const travellerCheckbox = player.querySelector('input[type="checkbox"]');
+                  if (travellerCheckbox) {
+                    travellerCheckbox.checked = data.isTraveller[index];
+                  }
+                }
+              });
+              
+              // Update visible action buttons based on game state
+              const startGameBtn = document.getElementById('btn-start-game');
+              const resetGameBtn = document.getElementById('btn-reset-game');
+              const goodWinsBtn = document.getElementById('btn-good-wins');
+              const evilWinsBtn = document.getElementById('btn-evil-wins');
+              
+              if (data.gameStarted && !data.gameEnded) {
+                startGameBtn.classList.add('hidden');
+                resetGameBtn.classList.remove('hidden');
+                goodWinsBtn.classList.remove('hidden');
+                evilWinsBtn.classList.remove('hidden');
+              } else if (data.gameEnded) {
+                startGameBtn.classList.add('hidden');
+                resetGameBtn.classList.remove('hidden');
+                goodWinsBtn.classList.add('hidden');
+                evilWinsBtn.classList.add('hidden');
+              } else {
+                startGameBtn.classList.remove('hidden');
+                resetGameBtn.classList.add('hidden');
+                goodWinsBtn.classList.add('hidden');
+                evilWinsBtn.classList.add('hidden');
+              }
+            })
+            .catch(error => {
+              console.error('Error fetching game state:', error);
+            });
+        }
+        
+        // Set up interval to refresh game state
+        setInterval(refreshGameState, 3000);
+        refreshGameState(); // Initial load
+        
+        // Add event listeners for action buttons
+        document.querySelectorAll('.ajax-btn').forEach(button => {
+          button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const url = this.getAttribute('data-url');
+            const confirmMsg = this.getAttribute('data-confirm');
+            
+            if (confirmMsg && !confirm(confirmMsg)) {
+              return;
+            }
+            
+            fetch(url)
+              .then(response => {
+                if (response.ok) {
+                  showNotification('Action completed successfully');
+                  refreshGameState();
+                } else {
+                  throw new Error('Server error');
+                }
+              })
+              .catch(error => {
+                showNotification('Error: ' + error.message, false);
+              });
+          });
+        });
+        
+        // Handle toggle status clicks
+        document.querySelectorAll('.toggle-status').forEach(button => {
+          button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const playerId = this.getAttribute('data-player');
+            
+            fetch(`/api/toggle?i=${playerId}`)
+              .then(response => {
+                if (response.ok) {
+                  refreshGameState();
+                } else {
+                  throw new Error('Server error');
+                }
+              })
+              .catch(error => {
+                showNotification('Error: ' + error.message, false);
+              });
+          });
+        });
+        
+        // Handle traveller checkboxes
+        document.querySelectorAll('.traveller-checkbox input').forEach(checkbox => {
+          checkbox.addEventListener('change', function() {
+            const playerId = this.getAttribute('data-player');
+            const isChecked = this.checked ? 1 : 0;
+            
+            fetch(`/api/traveller?i=${playerId}&t=${isChecked}`)
+              .then(response => {
+                if (response.ok) {
+                  refreshGameState();
+                } else {
+                  throw new Error('Server error');
+                }
+              })
+              .catch(error => {
+                showNotification('Error: ' + error.message, false);
+              });
+          });
+        });
+        
+        // Handle player rename forms
+        document.querySelectorAll('.name-form').forEach(form => {
+          form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const playerId = this.querySelector('input[name="i"]').value;
+            const playerName = this.querySelector('input[name="name"]').value;
+            
+            fetch(`/api/name?i=${playerId}&name=${encodeURIComponent(playerName)}`)
+              .then(response => {
+                if (response.ok) {
+                  showNotification('Player renamed successfully');
+                  refreshGameState();
+                } else {
+                  throw new Error('Server error');
+                }
+              })
+              .catch(error => {
+                showNotification('Error: ' + error.message, false);
+              });
+          });
+        });
+      });
+    </script>
+  )";
+}
+
+String generateHTMLPage() {
+  String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+  html += "<title>Blood on the Clocktower</title>";
+  html += getHTMLStyles();
+  html += "</head><body>";
+  html += "<h1>Blood on the Clocktower</h1>";
+  
+  // Game Controls Section
+  html += "<div class='controls'>";
+  html += "<button id='btn-start-game' class='btn btn-primary ajax-btn' data-url='/api/start'>Start Game</button>";
+  html += "<button id='btn-reset-game' class='btn btn-danger ajax-btn hidden' data-url='/api/reset' data-confirm='Are you sure you want to reset the game?'>Reset Game</button>";
+  html += "<button id='btn-good-wins' class='btn btn-success ajax-btn hidden' data-url='/api/end?result=good'>Good Wins</button>";
+  html += "<button id='btn-evil-wins' class='btn btn-danger ajax-btn hidden' data-url='/api/end?result=evil'>Evil Wins</button>";
+  html += "<button class='btn btn-danger ajax-btn' data-url='/api/clear' data-confirm='Delete all saved state and restart?'>Clear All</button>";
+  
+  // Game status display
+  html += "<div class='game-stats'>";
+  html += "<div class='stat-box'><h3>Game Status</h3><p id='game-status'>Not Started</p></div>";
+  
+  // Player count stats
+  html += "<div class='stat-box'><h3>Player Counts</h3>";
+  html += "<p>Alive: <span id='alive-count'>0</span></p>";
+  html += "<p>Votes Needed: <span id='votes-needed'>0</span></p>";
+  html += "<p>Votes Available: <span id='votes-available'>0</span></p></div>";
+  
+  // Role breakdown
+  html += "<div class='stat-box'><h3>Role Breakdown</h3>";
+  html += "<p>Townsfolk: <span id='townsfolk-count'>3</span></p>";
+  html += "<p>Outsiders: <span id='outsiders-count'>0</span></p>";
+  html += "<p>Minions: <span id='minions-count'>1</span></p>";
+  html += "<p>Demon: 1</p></div>";
+  
+  html += "</div>"; // End game-stats
+  html += "</div>"; // End controls
+  
+  // Player grid
+  html += "<div class='player-grid'>";
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    String statusClass = "status-inactive";
+    if (gameEnded) {
+      statusClass = evilWon ? "status-evil" : "status-good";
+    } else {
+      if (playerStates[i] == ALIVE) statusClass = isTraveller[i] ? "status-yellow" : "status-green";
+      else if (playerStates[i] == DEAD_WITH_VOTE) statusClass = "status-blue";
+      else if (playerStates[i] == DEAD_NO_VOTE) statusClass = "status-purple";
+    }
+    
+    html += "<div class='player " + statusClass + "'>";
+    
+    // Name form
+    html += "<form class='name-form'>";
+    html += "<input type='hidden' name='i' value='" + String(i) + "'>";
+    html += "<input type='text' class='player-name' name='name' value='" + playerNames[i] + "'>";
+    html += "<button type='submit' class='btn btn-primary'>Rename</button>";
+    html += "</form>";
+    
+    // Status toggle button
+    html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + playerNames[i] + "</button>";
+    
+    // Traveller checkbox
+    html += "<div class='traveller-checkbox'>";
+    html += "<label><input type='checkbox' data-player='" + String(i) + "' " + (isTraveller[i] ? "checked" : "") + "> Traveller</label>";
+    html += "</div>";
+    
+    html += "</div>"; // End player
+  }
+  html += "</div>"; // End player-grid
+  
+  // Notification element
+  html += "<div id='notification'></div>";
+  
+  // Include JavaScript
+  html += getHTMLJavaScript();
+  html += "</body></html>";
+  return html;
+}
+
+// API endpoint to get game state in JSON format
+void handleAPIState() {
   int aliveCount = 0;
   for (int i = 0; i < NUM_PLAYERS; i++) {
     if (playerStates[i] == ALIVE) aliveCount++;
@@ -257,10 +678,7 @@ String generateControlPage() {
   for (int i = 0; i < NUM_PLAYERS; i++) {
     if (playerStates[i] == DEAD_WITH_VOTE) votesAvailable++;
   }
-  html += "<p><strong>Alive:</strong> " + String(aliveCount) + "<br>";
-  html += "<strong>Votes needed:</strong> " + String(votesNeeded) + "<br>";
-  html += "<strong>Votes available:</strong> " + String(votesAvailable) + "</p>";
-
+  
   int activeCount = 0;
   for (int i = 0; i < NUM_PLAYERS; i++) {
     if (playerActive[i] && !isTraveller[i]) activeCount++;
@@ -272,63 +690,51 @@ String generateControlPage() {
     outsiders = (activeCount + 2) % 3;
     minions = min(base - 2, 3);
   }
-  html += "<p><strong>Role Breakdown:</strong><br>";
-  html += "Townsfolk: " + String(townsfolk) + "<br>";
-  html += "Outsiders: " + String(outsiders) + "<br>";
-  html += "Minions: " + String(minions) + "<br>";
-  html += "Demon: 1</p>";
-  html += "<form action='/clear' onsubmit=\"return confirm('Delete all saved state and restart?')\"><button type='submit'>Clear All</button></form></div>";
-
-  for (int i = 0; i < NUM_PLAYERS; i++) {
-    if (gameStarted and playerStates[i] != NOT_IN_PLAY) {
-      html += "<div class='player'>";
-      html += "<form method='get' action='/name'><input type='hidden' name='i' value='" + String(i) + "'>";
-      html += "<input name='name' value='" + playerNames[i] + "' style='width:100%; margin-bottom:5px;'><input type='submit' value='Rename' style='width:100%; margin-bottom:5px;'></form>";
-      html += "<form method='get' action='/toggle'><input type='hidden' name='i' value='" + String(i) + "'>";
-    } else {
-      if (!gameStarted) {
-        html += "<div class='player'>";
-        html += "<form method='get' action='/name'><input type='hidden' name='i' value='" + String(i) + "'>";
-        html += "<input name='name' value='" + playerNames[i] + "' style='width:100%; margin-bottom:5px;'><input type='submit' value='Rename' style='width:100%; margin-bottom:5px;'></form>";
-        html += "<form method='get' action='/toggle'><input type='hidden' name='i' value='" + String(i) + "'>";
-      }
-    }
-
-    String css = "inactive";
-    if (gameEnded) {
-      css = evilWon ? "ended-red" : "ended-blue";
-    } else {
-      if (playerStates[i] == ALIVE) css = isTraveller[i] ? "yellow" : "green";
-      else if (playerStates[i] == DEAD_WITH_VOTE) css = "blue";
-      else if (playerStates[i] == DEAD_NO_VOTE) css = "purple";
-    }
-    
-    if (gameStarted and playerStates[i] != NOT_IN_PLAY) {
-      html += "<button class='" + css + "' type='submit'>" + playerNames[i] + "</button></form>";
-      html += "<form method='get' action='/traveller'><input type='hidden' name='i' value='" + String(i) + "'>";
-      html += "<label><input type='checkbox' name='t' value='1' onchange='this.form.submit();' ";
-      html += String(isTraveller[i] ? "checked" : "");
-      html += "> Traveller</label></form></div>";
-    } else {
-      if (!gameStarted) {
-        html += "<button class='" + css + "' type='submit'>" + playerNames[i] + "</button></form>";
-        html += "<form method='get' action='/traveller'><input type='hidden' name='i' value='" + String(i) + "'>";
-        html += "<label><input type='checkbox' name='t' value='1' onchange='this.form.submit();' ";
-        html += String(isTraveller[i] ? "checked" : "");
-        html += "> Traveller</label></form></div>";
-      }
-    }
+  
+  String gameStatus;
+  if (gameEnded) {
+    gameStatus = evilWon ? "EVIL WON" : "GOOD WON";
+  } else {
+    gameStatus = gameStarted ? "IN PROGRESS" : "NOT STARTED";
   }
-  html += "</body></html>";
-  return html;
+  
+  JsonDocument doc;
+  doc["gameStarted"] = gameStarted;
+  doc["gameEnded"] = gameEnded;
+  doc["evilWon"] = evilWon;
+  doc["gameStatus"] = gameStatus;
+  doc["aliveCount"] = aliveCount;
+  doc["votesNeeded"] = votesNeeded;
+  doc["votesAvailable"] = votesAvailable;
+  doc["townsfolk"] = townsfolk;
+  doc["outsiders"] = outsiders;
+  doc["minions"] = minions;
+  
+  JsonArray playerStatesArray = doc.createNestedArray("playerStates");
+  JsonArray playerNamesArray = doc.createNestedArray("playerNames");
+  JsonArray isTravellerArray = doc.createNestedArray("isTraveller");
+  
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    playerStatesArray.add((int)playerStates[i]);
+    playerNamesArray.add(playerNames[i]);
+    isTravellerArray.add(isTraveller[i]);
+  }
+  
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
 }
 
 void setupWebServer() {
+  // Main HTML page
   server.on("/", HTTP_GET, [](){
-    server.send(200, "text/html", generateControlPage());
+    server.send(200, "text/html", generateHTMLPage());
   });
-
-  server.on("/toggle", HTTP_GET, [](){
+  
+  // API endpoints
+  server.on("/api/state", HTTP_GET, handleAPIState);
+  
+  server.on("/api/toggle", HTTP_GET, [](){
     if (server.hasArg("i")) {
       int i = server.arg("i").toInt();
       if (i >= 0 && i < NUM_PLAYERS) {
@@ -338,11 +744,10 @@ void setupWebServer() {
         saveState();
       }
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
   });
 
-  server.on("/name", HTTP_GET, [](){
+  server.on("/api/name", HTTP_GET, [](){
     if (server.hasArg("i") && server.hasArg("name")) {
       int i = server.arg("i").toInt();
       String name = server.arg("name");
@@ -354,21 +759,19 @@ void setupWebServer() {
         saveState();
       }
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
   });
 
-  server.on("/start", HTTP_GET, [](){
+  server.on("/api/start", HTTP_GET, [](){
     gameStarted = true;
     gameEnded = false;
     saveState();
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
     displayNeedsRefresh = true;
     updateDisplay();
   });
 
-  server.on("/reset", HTTP_GET, [](){
+  server.on("/api/reset", HTTP_GET, [](){
     gameStarted = false;
     gameEnded = false;
     evilWon = false;
@@ -381,13 +784,12 @@ void setupWebServer() {
     }
     updateLEDs();
     saveState();
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
     displayNeedsRefresh = true;
     updateDisplay();
   });
 
-  server.on("/end", HTTP_GET, [](){
+  server.on("/api/end", HTTP_GET, [](){
     if (server.hasArg("result")) {
       gameEnded = true;
       gameStarted = false;
@@ -403,13 +805,12 @@ void setupWebServer() {
         delay(100);
       }
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
     displayNeedsRefresh = true;
     updateDisplay();
   });
 
-  server.on("/clear", HTTP_GET, [](){
+  server.on("/api/clear", HTTP_GET, [](){
     SPIFFS.remove(CONFIG_FILE);
     for (int i = 0; i < NUM_LEDS; i++) {
       leds[i] = CRGB::Black;
@@ -427,28 +828,34 @@ void setupWebServer() {
       isTraveller[i] = false;
     }
     saveState();
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
     displayNeedsRefresh = true;
     updateDisplay();
   });
 
-  server.on("/traveller", HTTP_GET, [](){
+  server.on("/api/traveller", HTTP_GET, [](){
     if (server.hasArg("i")) {
       int i = server.arg("i").toInt();
       if (i >= 0 && i < NUM_PLAYERS) {
-        isTraveller[i] = server.hasArg("t");
+        isTraveller[i] = server.hasArg("t") && server.arg("t") == "1";
         updateLEDs();
         saveState();
-        
       }
     }
-    server.sendHeader("Location", "/");
-    server.send(303);
+    server.send(200, "text/plain", "OK");
   });
-
+  
+  // Handle favicon.ico request
   server.on("/favicon.ico", HTTP_GET, [](){
     server.send(204);
+  });
+  
+  // Serve any files from SPIFFS
+  server.serveStatic("/static", SPIFFS, "/static/");
+  
+  // Set up 404 handler
+  server.onNotFound([]() {
+    server.send(404, "text/plain", "Not found");
   });
   
   server.begin();
