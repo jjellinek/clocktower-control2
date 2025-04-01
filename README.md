@@ -2,7 +2,7 @@
 
 An ESP32-C6 based controller for managing the town square in [Blood on the Clocktower](https://bloodontheclocktower.com/) games, featuring RGB LEDs for player status tracking and a web interface for easy game management.
 
-![BOTC Controller](https://via.placeholder.com/800x400?text=BOTC+Town+Square+Controller)
+![BOTC Controller](images/controller.jpg)
 
 ## Features
 
@@ -72,7 +72,7 @@ An ESP32-C6 based controller for managing the town square in [Blood on the Clock
 
 ## Using the Web Interface
 
-![Web Interface](https://via.placeholder.com/800x400?text=BOTC+Web+Interface)
+![Web Interface](images/web-interface.png)
 
 ### Game Controls
 
