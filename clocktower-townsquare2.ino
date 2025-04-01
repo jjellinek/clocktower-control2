@@ -163,47 +163,82 @@ void updateDisplay() {
 }
 
 void saveState() {
-  JsonDocument doc;
+  StaticJsonDocument<2048> doc;
+
   doc["gameStarted"] = gameStarted;
   doc["gameEnded"] = gameEnded;
   doc["evilWon"] = evilWon;
-  
-  for (int i = 0; i < NUM_PLAYERS; i++) {
-    doc["players"][i]["active"] = playerActive[i];
-    doc["players"][i]["status"] = (int)playerStates[i];
-    doc["players"][i]["name"] = playerNames[i];
-    doc["players"][i]["traveller"] = isTraveller[i];
-  }
-  
-  File f = SPIFFS.open(CONFIG_FILE, "w");
-  if (f) {
-    serializeJson(doc, f);
-    f.close();
-  }
-}
 
-void loadState() {
-  if (!SPIFFS.exists(CONFIG_FILE)) return;
-  File f = SPIFFS.open(CONFIG_FILE, "r");
-  if (!f) return;
-  
-  // Using ArduinoJson 7.x
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, f);
-  if (err) return;
-  
-  gameStarted = doc["gameStarted"].as<bool>();
-  gameEnded = doc["gameEnded"].as<bool>();
-  evilWon = doc["evilWon"].as<bool>();
-  
+  JsonArray players = doc.createNestedArray("players");
   for (int i = 0; i < NUM_PLAYERS; i++) {
-    playerActive[i] = doc["players"][i]["active"].as<bool>();
-    playerStates[i] = (PlayerStatus)(doc["players"][i]["status"].as<int>());
-    playerNames[i] = doc["players"][i]["name"].as<String>();
-    isTraveller[i] = doc["players"][i]["traveller"].as<bool>();
+    JsonObject p = players.createNestedObject();
+    p["active"] = playerActive[i];
+    p["status"] = (int)playerStates[i];
+    p["name"] = playerNames[i];
+    p["traveller"] = isTraveller[i];
   }
+
+  File f = SPIFFS.open(CONFIG_FILE, "w");
+  if (!f) {
+    Serial.println("Failed to open config file for writing.");
+    return;
+  }
+
+  if (serializeJson(doc, f) == 0) {
+    Serial.println("Failed to write JSON to file.");
+  } else {
+    Serial.println("State saved successfully.");
+  }
+
   f.close();
 }
+
+
+
+void loadState() {
+  if (!SPIFFS.exists(CONFIG_FILE)) {
+    Serial.println("No saved state file found.");
+    return;
+  }
+
+  File f = SPIFFS.open(CONFIG_FILE, "r");
+  if (!f) {
+    Serial.println("Failed to open config file for reading.");
+    return;
+  }
+
+  StaticJsonDocument<2048> doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+
+  if (err) {
+    Serial.print("Failed to parse JSON: ");
+    Serial.println(err.c_str());
+    return;
+  }
+
+  gameStarted = doc["gameStarted"] | false;
+  gameEnded = doc["gameEnded"] | false;
+  evilWon = doc["evilWon"] | false;
+
+  JsonArray players = doc["players"];
+  for (int i = 0; i < NUM_PLAYERS && i < players.size(); i++) {
+    JsonObject p = players[i];
+    playerActive[i] = p["active"] | false;
+    playerStates[i] = (PlayerStatus)(p["status"] | 0);
+    isTraveller[i] = p["traveller"] | false;
+
+    if (p["name"].is<const char*>()) {
+      playerNames[i] = p["name"].as<const char*>();
+    } else {
+      playerNames[i] = "Player " + String(i);
+    }
+  }
+
+  Serial.println("State loaded successfully.");
+}
+
+
 
 void updateLEDs() {
   for (int i = 0; i < NUM_PLAYERS; i++) {
