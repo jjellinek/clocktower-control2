@@ -10,7 +10,9 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <AsyncTCP.h>
 #include <WebServer.h>
+#include <ElegantOTA.h>
 #include <DNSServer.h>
 #include <WiFiManager.h>
 #include <FastLED.h>
@@ -647,10 +649,10 @@ String getHTMLJavaScript() {
 
 String generateHTMLPage() {
   String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>BOTC Townsquare</title>";
+  html += "<title>BOTC Townsquare v1.0</title>";
   html += getHTMLStyles();
   html += "</head><body>";
-  html += "<h1>BOTC Townsquare</h1>";
+  html += "<h1>BOTC Townsquare v1.0</h1>";
   
   // Game Controls Section
   html += "<div class='controls'>";
@@ -724,7 +726,7 @@ String generateHTMLPage() {
   
   // Include JavaScript
   html += getHTMLJavaScript();
-  html += "</body></html>";
+  html += "<p><a href=\"/update\">OTA Update</a></p></body></html>";
   return html;
 }
 
@@ -786,154 +788,164 @@ void handleAPIState() {
   }
   String response;
   serializeJson(doc, response);
+  
   server.send(200, "application/json", response);
 }
+// API: Toggle player state
+void handleToggle() {
+  if (server.hasArg("i")) {
+    int i = server.arg("i").toInt();
+    if (i >= 0 && i < NUM_PLAYERS) {
+      if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
+        if (server.hasArg("name")) {
+          playerNames[i] = server.arg("name");
+        }
+        playerActive[i] = true;
+        playerStates[i] = ALIVE;
+      } else {
+        playerStates[i] = (PlayerStatus)((playerStates[i] + 1) % 4);
+        if (playerStates[i] == NOT_IN_PLAY) {
+          playerActive[i] = false;
+        }
+      }
+      updateLEDs();
+      saveState();
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
 
+// API: Update player name
+void handleName() {
+  if (server.hasArg("i") && server.hasArg("name")) {
+    int i = server.arg("i").toInt();
+    String name = server.arg("name");
+    if (i >= 0 && i < NUM_PLAYERS) {
+      playerNames[i] = name;
+      updateLEDs();
+      saveState();
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+// API: Start game
+void handleStart() {
+  gameStarted = true;
+  gameEnded = false;
+  saveState();
+  server.send(200, "text/plain", "OK");
+  displayNeedsRefresh = true;
+  updateDisplay();
+}
+
+// API: Reset game
+void handleReset() {
+  gameStarted = false;
+  gameEnded = false;
+  evilWon = false;
+  minions = 1;
+  outsiders = 0;
+  townsfolk = 3;
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    playerStates[i] = NOT_IN_PLAY;
+    playerActive[i] = false;
+  }
+  updateLEDs();
+  saveState();
+  server.send(200, "text/plain", "OK");
+  displayNeedsRefresh = true;
+  updateDisplay();
+}
+
+// API: End game with result
+void handleEnd() {
+  if (server.hasArg("result")) {
+    gameEnded = true;
+    gameStarted = false;
+    evilWon = server.arg("result") == "evil";
+    saveState();
+
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+      CRGB color = evilWon ? CRGB::Red : CRGB::Blue;
+      for (int j = 0; j < LEDS_PER_PLAYER; j++) {
+        leds[(i * LEDS_PER_PLAYER) + j] = color;
+      }
+      FastLED.show();
+      delay(100);
+    }
+  }
+  server.send(200, "text/plain", "OK");
+  displayNeedsRefresh = true;
+  updateDisplay();
+}
+
+// API: Clear saved state and reset
+void handleClear() {
+  SPIFFS.remove(CONFIG_FILE);
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB::Black;
+  }
+  FastLED.show();
+
+  gameStarted = false;
+  gameEnded = false;
+  evilWon = false;
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    playerStates[i] = NOT_IN_PLAY;
+    playerActive[i] = false;
+    playerNames[i] = "P" + String(i + 1);
+    isTraveller[i] = false;
+  }
+
+  saveState();
+  server.send(200, "text/plain", "OK");
+  displayNeedsRefresh = true;
+  updateDisplay();
+}
+
+// API: Mark as traveller
+void handleTraveller() {
+  if (server.hasArg("i")) {
+    int i = server.arg("i").toInt();
+    if (i >= 0 && i < NUM_PLAYERS) {
+      isTraveller[i] = server.hasArg("t") && server.arg("t") == "1";
+      updateLEDs();
+      saveState();
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
 void setupWebServer() {
+  // Enable OTA update interface
+  ElegantOTA.begin(&server); // Now compatible!
+
   // Main HTML page
   server.on("/", HTTP_GET, [](){
     server.send(200, "text/html", generateHTMLPage());
   });
-  
-  // API endpoints
+
+  // API routes
   server.on("/api/state", HTTP_GET, handleAPIState);
-  
-  server.on("/api/toggle", HTTP_GET, [](){
-    if (server.hasArg("i")) {
-      int i = server.arg("i").toInt();
-      if (i >= 0 && i < NUM_PLAYERS) {
-        // If player is being activated, save the name
-        if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
-          if (server.hasArg("name")) {
-            playerNames[i] = server.arg("name");
-          }
-          playerActive[i] = true;
-          playerStates[i] = ALIVE;
-        } else {
-          // Just cycle through states for already active players
-          playerStates[i] = (PlayerStatus)((playerStates[i] + 1) % 4);
-          if (playerStates[i] == NOT_IN_PLAY) {
-            playerActive[i] = false;
-          }
-        }
-        updateLEDs();
-        saveState();
-      }
-    }
-   server.send(200, "text/plain", "OK");
-  });
+  server.on("/api/toggle", HTTP_GET, handleToggle);
+  server.on("/api/name", HTTP_GET, handleName);
+  server.on("/api/start", HTTP_GET, handleStart);
+  server.on("/api/reset", HTTP_GET, handleReset);
+  server.on("/api/end", HTTP_GET, handleEnd);
+  server.on("/api/clear", HTTP_GET, handleClear);
+  server.on("/api/traveller", HTTP_GET, handleTraveller);
 
-  server.on("/api/name", HTTP_GET, [](){
-    if (server.hasArg("i") && server.hasArg("name")) {
-      int i = server.arg("i").toInt();
-      String name = server.arg("name");
-      if (i >= 0 && i < NUM_PLAYERS) {
-        playerNames[i] = name;
-        updateLEDs();
-        saveState();
-      }
-    }
-    server.send(200, "text/plain", "OK");
-  });
-
-  server.on("/api/start", HTTP_GET, [](){
-    gameStarted = true;
-    gameEnded = false;
-    saveState();
-    server.send(200, "text/plain", "OK");
-    displayNeedsRefresh = true;
-    updateDisplay();
-  });
-
-  server.on("/api/reset", HTTP_GET, [](){
-    gameStarted = false;
-    gameEnded = false;
-    evilWon = false;
-    minions = 1;
-    outsiders = 0;
-    townsfolk = 3;
-    for (int i = 0; i < NUM_PLAYERS; i++) {
-      playerStates[i] = NOT_IN_PLAY;
-      playerActive[i] = false;
-    }
-    updateLEDs();
-    saveState();
-    server.send(200, "text/plain", "OK");
-    displayNeedsRefresh = true;
-    updateDisplay();
-  });
-
-  server.on("/api/end", HTTP_GET, [](){
-    if (server.hasArg("result")) {
-      gameEnded = true;
-      gameStarted = false;
-      evilWon = (server.arg("result") == "evil");
-      saveState();
-
-      for (int i = 0; i < NUM_PLAYERS; i++) {
-        CRGB color = evilWon ? CRGB::Red : CRGB::Blue;
-        for (int j = 0; j < LEDS_PER_PLAYER; j++) {
-          leds[(i * LEDS_PER_PLAYER) + j] = color;
-        }
-        FastLED.show();
-        delay(100);
-      }
-    }
-    server.send(200, "text/plain", "OK");
-    displayNeedsRefresh = true;
-    updateDisplay();
-  });
-
-  server.on("/api/clear", HTTP_GET, [](){
-    SPIFFS.remove(CONFIG_FILE);
-    for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = CRGB::Black;
-    }
-    FastLED.show();
-
-    // Also reset runtime state
-    gameStarted = false;
-    gameEnded = false;
-    evilWon = false;
-    for (int i = 0; i < NUM_PLAYERS; i++) {
-      playerStates[i] = NOT_IN_PLAY;
-      playerActive[i] = false;
-      playerNames[i] = "P" + String(i + 1);
-      isTraveller[i] = false;
-    }
-    saveState();
-    server.send(200, "text/plain", "OK");
-    displayNeedsRefresh = true;
-    updateDisplay();
-  });
-
-  server.on("/api/traveller", HTTP_GET, [](){
-    if (server.hasArg("i")) {
-      int i = server.arg("i").toInt();
-      if (i >= 0 && i < NUM_PLAYERS) {
-        isTraveller[i] = server.hasArg("t") && server.arg("t") == "1";
-        updateLEDs();
-        saveState();
-      }
-    }
-    server.send(200, "text/plain", "OK");
-  });
-  
-  // Handle favicon.ico request
-  server.on("/favicon.ico", HTTP_GET, [](){
-    server.send(204);
-  });
-  
-  // Serve any files from SPIFFS
+  // Static files (optional)
   server.serveStatic("/static", SPIFFS, "/static/");
-  
-  // Set up 404 handler
-  server.onNotFound([]() {
+
+  // 404 handler
+  server.onNotFound([](){
     server.send(404, "text/plain", "Not found");
   });
-  
+
   server.begin();
 }
+
 
 void setupWiFi() {
   WiFiManager wifiManager;
