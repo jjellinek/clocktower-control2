@@ -87,8 +87,6 @@ unsigned long lastDisplayUpdate = 0;
 int displayStep = 0;
 
 // Display line redraw flags
-bool updateActiveLine = true;
-bool updateAliveLine = true;
 bool updateGameStateLine = true;
 bool updateWinLine = true;
 bool updatePlayerCount = true;
@@ -110,8 +108,7 @@ void redrawLine(int y, const String &label, const String &value, uint16_t color)
   tft.fillRect(0, y, 320, 24, BACKGROUND); // was 12
   tft.setCursor(0, y);
   tft.setTextColor(color);
-  tft.print(label);
-  tft.print(value);
+  tft.print(label + value);
 }
 
 void updateDisplay() {
@@ -401,13 +398,11 @@ String getHTMLJavaScript() {
       document.addEventListener('DOMContentLoaded', function() {
         // Functions to show notifications
         function showNotification(message, isSuccess = true) {
-          const notification = document.getElementById('notification');
-          notification.textContent = message;
-          notification.style.backgroundColor = isSuccess ? '#44bb44' : '#bb4444';
-          notification.classList.add('show');
-          setTimeout(() => {
-            notification.classList.remove('show');
-          }, 3000);
+          const n = document.getElementById('notification');
+          n.textContent = message;
+          n.style.backgroundColor = isSuccess ? '#44bb44' : '#bb4444';
+          n.classList.add('show');
+          setTimeout(() => n.classList.remove('show'), 3000);
         }
         
         // Function to refresh game state
@@ -454,9 +449,17 @@ String getHTMLJavaScript() {
                   }
                   
                   // Update player name displays
-                  const nameBtn = player.querySelector('.status-btn');
-                  if (nameBtn) {
-                    nameBtn.textContent = data.playerNames[index];
+                  const statusBtn = player.querySelector('.toggle-status');
+                  if (statusBtn) {
+                    if (!data.playerActive[index] || data.playerStates[index] === 0) { // NOT_IN_PLAY
+                      statusBtn.textContent = "Add Player";
+                    } else if (data.playerStates[index] === 1) { // ALIVE
+                      statusBtn.textContent = "Kill";
+                    } else if (data.playerStates[index] === 2) { // DEAD_WITH_VOTE
+                      statusBtn.textContent = "Remove Vote";
+                    } else if (data.playerStates[index] === 3) { // DEAD_NO_VOTE
+                      statusBtn.textContent = "Remove";
+                    }
                   }
                   
                   // Update traveller checkbox
@@ -648,7 +651,17 @@ String generateHTMLPage() {
     html += "</form>";
     
     // Status toggle button
-    html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + playerNames[i] + "</button>";
+    String btnText;
+    if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
+      btnText = "Add Player";
+    } else if (playerStates[i] == ALIVE) {
+      btnText = "Kill";
+    } else if (playerStates[i] == DEAD_WITH_VOTE) {
+      btnText = "Remove Vote";
+    } else if (playerStates[i] == DEAD_NO_VOTE) {
+      btnText = "Remove";
+    }
+    html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + btnText + "</button>";
     
     // Traveller checkbox
     html += "<div class='traveller-checkbox'>";
@@ -720,7 +733,10 @@ void handleAPIState() {
     playerNamesArray.add(playerNames[i]);
     isTravellerArray.add(isTraveller[i]);
   }
-  
+  JsonArray playerActiveArray = doc.createNestedArray("playerActive");
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    playerActiveArray.add(playerActive[i]);
+  }
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
