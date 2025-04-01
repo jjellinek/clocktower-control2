@@ -461,7 +461,15 @@ String getHTMLJavaScript() {
                       statusBtn.textContent = "Remove";
                     }
                   }
-                  
+                  const nameInput = player.querySelector('.player-name');
+                  if (nameInput) {
+                    // Only update the name if the input is not currently focused
+                    if (document.activeElement !== nameInput) {
+                      nameInput.value = data.playerNames[index];
+                    }
+                    nameInput.disabled = data.playerActive[index];
+                  }
+
                   // Update traveller checkbox
                   const travellerCheckbox = player.querySelector('input[type="checkbox"]');
                   if (travellerCheckbox) {
@@ -530,23 +538,31 @@ String getHTMLJavaScript() {
         
         // Handle toggle status clicks
         document.querySelectorAll('.toggle-status').forEach(button => {
-          button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const playerId = this.getAttribute('data-player');
-            
-            fetch(`/api/toggle?i=${playerId}`)
-              .then(response => {
-                if (response.ok) {
-                  refreshGameState();
-                } else {
-                  throw new Error('Server error');
-                }
-              })
-              .catch(error => {
-                showNotification('Error: ' + error.message, false);
-              });
-          });
+        button.addEventListener('click', function(e) {
+          e.preventDefault();
+          const playerId = this.getAttribute('data-player');
+          const player = this.closest('.player');
+          const nameInput = player.querySelector('.player-name');
+    
+          // Only include name if the player is being added
+          let url = `/api/toggle?i=${playerId}`;
+          if (nameInput && !nameInput.disabled) {
+            url += `&name=${encodeURIComponent(nameInput.value)}`;
+          }
+    
+          fetch(url)
+            .then(response => {
+            if (response.ok) {
+              refreshGameState();
+            } else {
+              throw new Error('Server error');
+            }
+          })
+        .catch(error => {
+          showNotification('Error: ' + error.message, false);
         });
+      });
+    });
         
         // Handle traveller checkboxes
         document.querySelectorAll('.traveller-checkbox input').forEach(checkbox => {
@@ -567,26 +583,26 @@ String getHTMLJavaScript() {
               });
           });
         });
-        
-        // Handle player rename forms
-        document.querySelectorAll('.name-form').forEach(form => {
-          form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const playerId = this.querySelector('input[name="i"]').value;
-            const playerName = this.querySelector('input[name="name"]').value;
-            
-            fetch(`/api/name?i=${playerId}&name=${encodeURIComponent(playerName)}`)
-              .then(response => {
-                if (response.ok) {
-                  showNotification('Player renamed successfully');
-                  refreshGameState();
-                } else {
-                  throw new Error('Server error');
-                }
-              })
-              .catch(error => {
-                showNotification('Error: ' + error.message, false);
-              });
+        document.querySelectorAll('.player-name').forEach(input => {
+          input.addEventListener('blur', function() {
+            // Only save if the player is not active yet
+            if (!this.disabled) {
+              const playerId = this.getAttribute('data-player');
+              const playerName = this.value.trim();
+              
+              // Skip empty names
+              if (!playerName) return;
+              
+              fetch(`/api/name?i=${playerId}&name=${encodeURIComponent(playerName)}`)
+                .then(response => {
+                  if (!response.ok) {
+                    throw new Error('Server error');
+                  }
+                })
+                .catch(error => {
+                  showNotification('Error saving name: ' + error.message, false);
+                });
+            }
           });
         });
       });
@@ -643,12 +659,8 @@ String generateHTMLPage() {
     
     html += "<div class='player " + statusClass + "'>";
     
-    // Name form
-    html += "<form class='name-form'>";
-    html += "<input type='hidden' name='i' value='" + String(i) + "'>";
-    html += "<input type='text' class='player-name' name='name' value='" + playerNames[i] + "'>";
-    html += "<button type='submit' class='btn btn-primary'>Rename</button>";
-    html += "</form>";
+    html += "<input type='text' class='player-name' data-player='" + String(i) + "' value='" + playerNames[i] + "' " + (playerActive[i] ? "disabled" : "") + ">";
+
     
     // Status toggle button
     String btnText;
@@ -755,13 +767,25 @@ void setupWebServer() {
     if (server.hasArg("i")) {
       int i = server.arg("i").toInt();
       if (i >= 0 && i < NUM_PLAYERS) {
-        playerActive[i] = true;
-        playerStates[i] = (PlayerStatus)((playerStates[i] + 1) % 4);
+        // If player is being activated, save the name
+        if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
+          if (server.hasArg("name")) {
+            playerNames[i] = server.arg("name");
+          }
+          playerActive[i] = true;
+          playerStates[i] = ALIVE;
+        } else {
+          // Just cycle through states for already active players
+          playerStates[i] = (PlayerStatus)((playerStates[i] + 1) % 4);
+          if (playerStates[i] == NOT_IN_PLAY) {
+            playerActive[i] = false;
+          }
+        }
         updateLEDs();
         saveState();
       }
     }
-    server.send(200, "text/plain", "OK");
+   server.send(200, "text/plain", "OK");
   });
 
   server.on("/api/name", HTTP_GET, [](){
@@ -770,8 +794,6 @@ void setupWebServer() {
       String name = server.arg("name");
       if (i >= 0 && i < NUM_PLAYERS) {
         playerNames[i] = name;
-        playerActive[i] = true;
-        playerStates[i] = ALIVE;
         updateLEDs();
         saveState();
       }
