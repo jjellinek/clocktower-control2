@@ -49,7 +49,7 @@ This project is an ESP32-C6 based controller for managing a physical town square
 
 ## Web Interface
 
-![Web Interface](images/web_interface.jpg)
+![Web Interface](images/web-interface.png)
 
 ### Web Interface Access
 1. Connect to the same WiFi network as the device
