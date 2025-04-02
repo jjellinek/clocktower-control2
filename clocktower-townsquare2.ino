@@ -710,10 +710,10 @@ String getHTMLJavaScript() {
 
 String generateHTMLPage() {
   String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>BOTC Townsquare v1.0</title>";
+  html += "<title>BOTC Townsquare v1.0.1</title>";
   html += getHTMLStyles();
   html += "</head><body>";
-  html += "<h1>BOTC Townsquare v1.0</h1>";
+  html += "<h1>BOTC Townsquare v1.0.1</h1>";
   
   // Game Controls Section
   html += "<div class='controls'>";
