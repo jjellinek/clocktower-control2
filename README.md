@@ -1,7 +1,9 @@
 # Blood on the Clocktower Town Square Controller
 
 ## Overview
-This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a network of 3-LED disks (one disk per player) to visually represent player status in the game, along with a color LCD display and web interface for game management.
+This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a network of 3-LED rings (one ring per player) to visually represent player status in the game, along with a color LCD display and web interface for game management.
+
+![Controller Hardware](images/controller.jpg)
 
 ## Hardware Components
 - **ESP32-C6** microcontroller
@@ -44,6 +46,10 @@ This project is an ESP32-C6 based controller for managing a physical town square
 2. Connect to the "Clocktower-Setup" WiFi network from your phone or computer
 3. Follow the portal instructions to connect the device to your local WiFi
 4. Note the IP address displayed on the ST7789 screen
+
+## Web Interface
+
+![Web Interface](images/web_interface.jpg)
 
 ### Web Interface Access
 1. Connect to the same WiFi network as the device
