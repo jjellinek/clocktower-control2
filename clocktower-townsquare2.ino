@@ -314,10 +314,17 @@ String getHTMLStyles() {
         padding: 15px;
         transition: all 0.3s ease;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        height: auto;
+        max-width: 100%;
+        display: flex;
+        flex-direction: column;
       }
       .player:hover {
         transform: translateY(-5px);
         box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+      }
+      .name-form {
+        width: 100%;
       }
       .player-name {
         width: 100%;
@@ -327,6 +334,7 @@ String getHTMLStyles() {
         border-radius: 4px;
         background-color: #3a3a3a;
         color: #f0f0f0;
+        box-sizing: border-box;
       }
       .btn {
         display: inline-block;
@@ -396,8 +404,32 @@ String getHTMLStyles() {
         color: white;
         font-weight: bold;
       }
+
       .traveller-checkbox {
         margin: 10px 0;
+        display: flex;
+        align-items: center;
+        width: 100%;
+      }
+
+      .traveller-checkbox label {
+        flex-grow: 1;
+      }
+      .resurrect-icon::before {
+       content: "✨";
+      }
+
+      .resurrect-icon {
+        font-size: 1.5em;
+        cursor: pointer;
+        margin-left: 5px;
+        padding: 2px;
+        transition: transform 0.2s;
+        flex-shrink: 0;
+      }
+
+      .resurrect-icon:hover {
+        transform: scale(1.2);
       }
       #notification {
         position: fixed;
@@ -424,15 +456,6 @@ String getHTMLStyles() {
         .controls button {
           margin: 5px 0;
         }
-      }
-      .resurrect-btn {
-        background-color: #bb9b55;
-        color: white;
-        margin-top: 5px;
-      }
-
-      .resurrect-btn:hover {
-        background-color: #d4b673;
       }
     </style>
   )";
@@ -508,12 +531,12 @@ String getHTMLJavaScript() {
                     }
                   }
                   // Update resurrection button visibility based on player status
-                  const resurrectBtn = player.querySelector('.resurrect-btn');
-                  if (resurrectBtn) {
+                  const resurrectIcon = player.querySelector('.resurrect-icon');
+                  if (resurrectIcon) {
                     if (data.playerStates[index] === 2 || data.playerStates[index] === 3) { // DEAD_WITH_VOTE or DEAD_NO_VOTE
-                      resurrectBtn.style.display = 'block';
+                      resurrectIcon.style.display = 'inline-block';
                     } else {
-                      resurrectBtn.style.display = 'none';
+                      resurrectIcon.style.display = 'none';
                     }
                   }
                   const nameInput = player.querySelector('.player-name');
@@ -661,8 +684,8 @@ String getHTMLJavaScript() {
           });
         });
         // Handle resurrection button clicks
-        document.querySelectorAll('.resurrect-btn').forEach(button => {
-          button.addEventListener('click', function(e) {
+        document.querySelectorAll('.resurrect-icon').forEach(icon => {
+          icon.addEventListener('click', function(e) {
             e.preventDefault();
             const playerId = this.getAttribute('data-player');
             
@@ -750,17 +773,15 @@ String generateHTMLPage() {
     }
     html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + btnText + "</button>";
     
-    // Resurrection button - only show for dead players
-    html += "<button class='btn btn-warning resurrect-btn' data-player='" + String(i) + "' style='display: " + 
-           ((playerStates[i] == DEAD_WITH_VOTE || playerStates[i] == DEAD_NO_VOTE) ? "block" : "none") + 
-           "'>Resurrect</button>";
-    
-
     // Traveller checkbox
     html += "<div class='traveller-checkbox'>";
     html += "<label><input type='checkbox' data-player='" + String(i) + "' " + (isTraveller[i] ? "checked" : "") + "> Traveller</label>";
+    // Add resurrection icon/button as a span with a fixed width
+    html += "<span class='resurrect-icon' data-player='" + String(i) + "' style='display: " + 
+       ((playerStates[i] == DEAD_WITH_VOTE || playerStates[i] == DEAD_NO_VOTE) ? "inline-block" : "none") + 
+       "' title='Resurrect player'></span>";
     html += "</div>";
-    
+
     html += "</div>"; // End player
   }
   html += "</div>"; // End player-grid
