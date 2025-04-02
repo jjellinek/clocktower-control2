@@ -63,7 +63,7 @@ This project is an ESP32-C6 based controller for managing a physical town square
 - Click the status button to cycle through player states:
   - Not in play → Alive → Dead with vote → Dead without vote → Not in play
 - Check the "Traveller" box to mark a player as a traveller (yellow LED instead of green)
-- Enter a name and click "Rename" to assign a player name
+- Enter a name to assign a player name
 
 ### Game Controls
 - **Start Game**: Begins the game and updates the role distribution
