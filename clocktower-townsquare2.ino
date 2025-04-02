@@ -425,6 +425,15 @@ String getHTMLStyles() {
           margin: 5px 0;
         }
       }
+      .resurrect-btn {
+        background-color: #bb9b55;
+        color: white;
+        margin-top: 5px;
+      }
+
+      .resurrect-btn:hover {
+        background-color: #d4b673;
+      }
     </style>
   )";
 }
@@ -496,6 +505,15 @@ String getHTMLJavaScript() {
                       statusBtn.textContent = "Remove Vote";
                     } else if (data.playerStates[index] === 3) { // DEAD_NO_VOTE
                       statusBtn.textContent = "Remove";
+                    }
+                  }
+                  // Update resurrection button visibility based on player status
+                  const resurrectBtn = player.querySelector('.resurrect-btn');
+                  if (resurrectBtn) {
+                    if (data.playerStates[index] === 2 || data.playerStates[index] === 3) { // DEAD_WITH_VOTE or DEAD_NO_VOTE
+                      resurrectBtn.style.display = 'block';
+                    } else {
+                      resurrectBtn.style.display = 'none';
                     }
                   }
                   const nameInput = player.querySelector('.player-name');
@@ -642,6 +660,26 @@ String getHTMLJavaScript() {
             }
           });
         });
+        // Handle resurrection button clicks
+        document.querySelectorAll('.resurrect-btn').forEach(button => {
+          button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const playerId = this.getAttribute('data-player');
+            
+            fetch(`/api/resurrect?i=${playerId}`)
+              .then(response => {
+                if (response.ok) {
+                  showNotification('Player resurrected!');
+                  refreshGameState();
+                } else {
+                  throw new Error('Server error');
+                }
+              })
+              .catch(error => {
+                showNotification('Error: ' + error.message, false);
+              });
+          });
+        });
       });
     </script>
   )";
@@ -712,6 +750,12 @@ String generateHTMLPage() {
     }
     html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + btnText + "</button>";
     
+    // Resurrection button - only show for dead players
+    html += "<button class='btn btn-warning resurrect-btn' data-player='" + String(i) + "' style='display: " + 
+           ((playerStates[i] == DEAD_WITH_VOTE || playerStates[i] == DEAD_NO_VOTE) ? "block" : "none") + 
+           "'>Resurrect</button>";
+    
+
     // Traveller checkbox
     html += "<div class='traveller-checkbox'>";
     html += "<label><input type='checkbox' data-player='" + String(i) + "' " + (isTraveller[i] ? "checked" : "") + "> Traveller</label>";
@@ -858,6 +902,21 @@ void handleReset() {
   updateDisplay();
 }
 
+
+// API: Resurrect
+void handleResurrect() {
+    if (server.hasArg("i")) {
+      int i = server.arg("i").toInt();
+      if (i >= 0 && i < NUM_PLAYERS && 
+          (playerStates[i] == DEAD_WITH_VOTE || playerStates[i] == DEAD_NO_VOTE)) {
+        playerStates[i] = ALIVE;
+        updateLEDs();
+        saveState();
+        server.send(200, "text/plain", "OK");
+      }
+    }  
+}
+
 // API: End game with result
 void handleEnd() {
   if (server.hasArg("result")) {
@@ -934,6 +993,7 @@ void setupWebServer() {
   server.on("/api/end", HTTP_GET, handleEnd);
   server.on("/api/clear", HTTP_GET, handleClear);
   server.on("/api/traveller", HTTP_GET, handleTraveller);
+  server.on("/api/resurrect", HTTP_GET, handleResurrect);
 
   // Static files (optional)
   server.serveStatic("/static", SPIFFS, "/static/");
