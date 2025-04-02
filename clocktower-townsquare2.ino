@@ -7,6 +7,8 @@
 // - Web server with AJAX for responsive control without page refreshes
 // - Persistent player states and names using SPIFFS
 
+#define APP_VERSION "v0.0.3"
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
@@ -103,6 +105,8 @@ void setupDisplay() {
   tft.setTextColor(TEXT_COLOR);
   tft.setTextSize(2);
   tft.setCursor(0, 0);
+  tft.println("BOTC Townsquare");
+  tft.println(APP_VERSION);
   tft.println("Initializing...");
 }
 
@@ -527,7 +531,15 @@ String getHTMLJavaScript() {
                     } else if (data.playerStates[index] === 2) { // DEAD_WITH_VOTE
                       statusBtn.textContent = "Remove Vote";
                     } else if (data.playerStates[index] === 3) { // DEAD_NO_VOTE
-                      statusBtn.textContent = "Remove";
+                      // If game is in progress, don't show "Remove" option
+                      statusBtn.textContent = data.gameStarted ? "Dead" : "Remove";
+                      // Optionally disable the button if game is in progress
+                      statusBtn.disabled = data.gameStarted;
+                      if (data.gameStarted) {
+                        statusBtn.classList.add('btn-inactive');
+                      } else {
+                        statusBtn.classList.remove('btn-inactive');
+                      }
                     }
                   }
                   // Update resurrection button visibility based on player status
@@ -684,22 +696,32 @@ String getHTMLJavaScript() {
           });
         });
         // Handle resurrection button clicks
-        document.querySelectorAll('.resurrect-icon').forEach(icon => {
-          icon.addEventListener('click', function(e) {
+        document.querySelectorAll('.resurrect-icon').forEach(button => {
+          button.addEventListener('click', function(e) {
             e.preventDefault();
             const playerId = this.getAttribute('data-player');
-            
+
             fetch(`/api/resurrect?i=${playerId}`)
-              .then(response => {
-                if (response.ok) {
-                  showNotification('Player resurrected!');
-                  refreshGameState();
-                } else {
-                  throw new Error('Server error');
+              .then(response => response.json())
+              .then(data => {
+                if (data.needsEnable) {
+                  // Immediately re-enable the status button for this player
+                  const playerCard = this.closest('.player');
+                  if (playerCard) {
+                    const statusBtn = playerCard.querySelector('.toggle-status');
+                    if (statusBtn) {
+                      statusBtn.disabled = false;
+                      statusBtn.classList.remove('btn-inactive');
+                      statusBtn.textContent = "Kill"; // Since they're now alive
+                    }
+                  }
                 }
+                refreshGameState(); // Still refresh the full state
               })
               .catch(error => {
+                console.error('Error:', error);
                 showNotification('Error: ' + error.message, false);
+                refreshGameState(); // Refresh anyway to keep UI in sync
               });
           });
         });
@@ -710,10 +732,10 @@ String getHTMLJavaScript() {
 
 String generateHTMLPage() {
   String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>BOTC Townsquare v1.0.1</title>";
+  html += "<title>BOTC Townsquare " + String(APP_VERSION) + "</title>";
   html += getHTMLStyles();
   html += "</head><body>";
-  html += "<h1>BOTC Townsquare v1.0.1</h1>";
+  html += "<h1>BOTC Townsquare " + String(APP_VERSION) + "</h1>";
   
   // Game Controls Section
   html += "<div class='controls'>";
@@ -762,6 +784,8 @@ String generateHTMLPage() {
     
     // Status toggle button
     String btnText;
+    String btnClass = "btn status-btn toggle-status";
+
     if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
       btnText = "Add Player";
     } else if (playerStates[i] == ALIVE) {
@@ -769,9 +793,17 @@ String generateHTMLPage() {
     } else if (playerStates[i] == DEAD_WITH_VOTE) {
       btnText = "Remove Vote";
     } else if (playerStates[i] == DEAD_NO_VOTE) {
-      btnText = "Remove";
+      // If game is in progress, don't show "Remove" option
+      btnText = gameStarted ? "Dead" : "Remove";
+      // Optionally disable the button if game is in progress
+      if (gameStarted) {
+        btnClass += " btn-inactive";
+      }
     }
-    html += "<button class='btn status-btn toggle-status' data-player='" + String(i) + "'>" + btnText + "</button>";
+
+    html += "<button class='" + btnClass + "' data-player='" + String(i) + "'" + 
+            (gameStarted && playerStates[i] == DEAD_NO_VOTE ? " disabled" : "") + ">" + 
+            btnText + "</button>";
     
     // Traveller checkbox
     html += "<div class='traveller-checkbox'>";
@@ -861,18 +893,16 @@ void handleToggle() {
   if (server.hasArg("i")) {
     int i = server.arg("i").toInt();
     if (i >= 0 && i < NUM_PLAYERS) {
-      if (!playerActive[i] || playerStates[i] == NOT_IN_PLAY) {
-        if (server.hasArg("name")) {
-          playerNames[i] = server.arg("name");
-        }
-        playerActive[i] = true;
-        playerStates[i] = ALIVE;
+      playerActive[i] = true;
+      
+      // Prevent removing players if game is in progress
+      if (gameStarted && playerStates[i] == DEAD_NO_VOTE) {
+        // Do nothing - keep them as DEAD_NO_VOTE
       } else {
+        // Normal cycle through states
         playerStates[i] = (PlayerStatus)((playerStates[i] + 1) % 4);
-        if (playerStates[i] == NOT_IN_PLAY) {
-          playerActive[i] = false;
-        }
       }
+      
       updateLEDs();
       saveState();
     }
@@ -927,15 +957,21 @@ void handleReset() {
 // API: Resurrect
 void handleResurrect() {
     if (server.hasArg("i")) {
-      int i = server.arg("i").toInt();
-      if (i >= 0 && i < NUM_PLAYERS && 
-          (playerStates[i] == DEAD_WITH_VOTE || playerStates[i] == DEAD_NO_VOTE)) {
-        playerStates[i] = ALIVE;
-        updateLEDs();
-        saveState();
-        server.send(200, "text/plain", "OK");
-      }
-    }  
+    int i = server.arg("i").toInt();
+    if (i >= 0 && i < NUM_PLAYERS) {
+      // Set player to alive state
+      playerActive[i] = true;
+      playerStates[i] = ALIVE;
+      updateLEDs();
+      saveState();
+      
+      // In the response, include information that this player needs their button re-enabled
+      String response = "{\"status\":\"OK\",\"playerId\":" + String(i) + ",\"needsEnable\":true}";
+      server.send(200, "application/json", response);
+      return;
+    }
+  }
+  server.send(200, "text/plain", "OK");
 }
 
 // API: End game with result
@@ -1061,6 +1097,12 @@ void setupFileSystem() {
 
 void setup() {
   Serial.begin(115200);
+  Serial.println();
+  Serial.println("=================================");
+  Serial.println("BOTC Townsquare Controller");
+  Serial.println(APP_VERSION);
+  Serial.println("=================================");
+
   SPIFFS.begin(true);
 
   // Initialize display
