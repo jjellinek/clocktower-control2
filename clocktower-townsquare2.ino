@@ -7,7 +7,7 @@
 // - Web server with AJAX for responsive control without page refreshes
 // - Persistent player states and names using SPIFFS
 
-#define APP_VERSION "v0.0.3"
+#define APP_VERSION "v0.0.4"
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -35,7 +35,7 @@
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
 
 // LEDs
-#define DATA_PIN 8  // GPIO8 for RGB light beads (WS2812)
+#define DATA_PIN 12  // GPIO8 for RGB light beads (WS2812)
 #define NUM_PLAYERS 20
 #define LEDS_PER_PLAYER 3
 #define NUM_LEDS (NUM_PLAYERS * LEDS_PER_PLAYER)

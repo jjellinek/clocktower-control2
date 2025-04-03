@@ -4,6 +4,8 @@
 This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a network of 3-LED rings (one ring per player) to visually represent player status in the game, along with a color LCD display and web interface for game management.
 
 ![Controller Hardware](images/controller.jpg)
+![LED Hardware front](images/led-front.jpg)
+![LED Hardware back](images/led-back.jpg)
 
 ## Hardware Components
 - **ESP32-C6** microcontroller
