@@ -82,7 +82,7 @@ The system automatically calculates the recommended role distribution based on t
 - Each player uses one 17mm WS2812 RGB LED Ring (3-bit LED WS2812 5050 with integrated drivers)
 - The LED rings are connected in a chain (DATA OUT to DATA IN of the next ring)
 - Default configuration supports up to 20 players (60 LEDs total, 3 per ring)
-- Data pin is connected to GPIO8
+- Data pin is connected to GPIO3
 - Operating voltage: 5V
 
 ### Circuit Diagram and Setup
@@ -107,7 +107,7 @@ The system automatically calculates the recommended role distribution based on t
                       |
                       +---- [Optional 3.3V Regulator] ---- [ESP32-C6 3.3V] ---- [TXS0108E VA pin] ---- [TXS0108E OE pin]
                       
-[ESP32-C6 GPIO8] ---- [TXS0108E A1 pin]
+[ESP32-C6 GPIO3] ---- [TXS0108E A1 pin]
 [TXS0108E B1 pin] ---- [300-500Ω Resistor] ---- [WS2812 Ring #1 DATA IN]
 [WS2812 Ring #1 DATA OUT] ---- [WS2812 Ring #2 DATA IN]
 ... and so on for all rings ...
@@ -124,7 +124,7 @@ Since the ESP32-C6 operates at 3.3V logic and the WS2812 LED rings require 5V lo
   - VA pin to ESP32-C6 3.3V
   - VB pin to 5V power supply
   - GND to common ground
-  - A1 pin to ESP32-C6 GPIO8
+  - A1 pin to ESP32-C6 GPIO3
   - B1 pin to the first WS2812 LED ring's data input
   - OE pin to 3.3V (to enable the chip)
 - The TXS0108E has 8 channels, so you can use the remaining channels for other signals if needed
