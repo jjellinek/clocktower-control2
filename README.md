@@ -6,6 +6,8 @@ This project is an ESP32-C6 based controller for managing a physical town square
 <img src="images/controller.jpg" width="400" alt="Controller Hardware">
 <img src="images/led-front.jpg" width="100" alt="LED Hardware front">
 <img src="images/led-back.jpg" width="100" alt="LED Hardware back">
+<img src="images/ESP32-C6-LCD-1.47-details-05.jpg" width="300" alt="ESP32 pin layout">
+<img src="images/ESP32-C6-LCD-1.47-details-07.jpg" width="300" alt="ESP32 Measurements">
 
 ## Hardware Components
 - **ESP32-C6** microcontroller
