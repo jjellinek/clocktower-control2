@@ -3,6 +3,20 @@
 ## Overview
 This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a single 40-LED WS2812 strip (using every other LED for players) to visually represent player status in the game, along with a color LCD display and web interface for game management.
 
+<table>
+<tr>
+<td colspan=2>
+<img src="images/controller.jpg" width="400" alt="Controller Hardware">
+</td>
+</tr>
+<tr>
+<td>
+<img src="images/ESP32-C6-LCD-1.47-details-05.jpg" width="300" alt="ESP32 pin layout">
+<img src="images/ESP32-C6-LCD-1.47-details-07.jpg" width="300" alt="ESP32 Measurements">
+</td>
+</tr>
+</table>
+
 ## Hardware Components
 - **ESP32-C6** microcontroller with ST7789 LCD (172x320)
 - **40-LED WS2812 RGB Strip** (5V) - only uses every other LED for players (20 total player positions)
@@ -134,6 +148,7 @@ For a circular town square setup:
 - **Hot Plugging**: Never connect/disconnect while powered on
 
 ## Web Interface
+![Web Interface](images/web-interface.png)
 
 The web interface now shows:
 - LED position indicator for each player (e.g., "LED 0", "LED 2")
