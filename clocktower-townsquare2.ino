@@ -1,13 +1,14 @@
 // ESP32-C6 Blood on the Clocktower Town Square Controller
+// Modified for single 40-LED strip (using every other LED for players)
 // Using Adafruit libraries for the ST7789 display
 // Features:
-// - WS2812 LED control for up to 20 players (3 LEDs each)
+// - WS2812 LED strip control for up to 20 players (every other LED)
 // - ST7789 color LCD display (172x320) using Adafruit libraries
 // - WiFi setup with fallback AP mode
 // - Web server with AJAX for responsive control without page refreshes
 // - Persistent player states and names using SPIFFS
 
-#define APP_VERSION "v0.0.4"
+#define APP_VERSION "v0.1.0-strip"
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -34,12 +35,17 @@
 // Initialize ST7789 display (using hardware SPI)
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
 
-// LEDs
-#define DATA_PIN 3  // GPIO3 for RGB light beads (WS2812)
+// LEDs - Modified for single strip setup
+#define DATA_PIN 3  // GPIO3 for RGB LED strip (WS2812)
 #define NUM_PLAYERS 20
-#define LEDS_PER_PLAYER 3
-#define NUM_LEDS (NUM_PLAYERS * LEDS_PER_PLAYER)
+#define NUM_LEDS 40  // Total LEDs in strip
+#define LEDS_PER_PLAYER 1  // Now each player uses just one LED
 CRGB leds[NUM_LEDS];
+
+// Helper function to get LED index for a player (every other LED)
+int getPlayerLEDIndex(int playerIndex) {
+  return playerIndex * 2;  // Player 0 -> LED 0, Player 1 -> LED 2, etc.
+}
 
 // Player state types
 enum PlayerStatus { NOT_IN_PLAY, ALIVE, DEAD_WITH_VOTE, DEAD_NO_VOTE };
@@ -107,6 +113,7 @@ void setupDisplay() {
   tft.setCursor(0, 0);
   tft.println("BOTC Townsquare");
   tft.println(APP_VERSION);
+  tft.println("LED Strip Mode");
   tft.println("Initializing...");
 }
 
@@ -158,10 +165,8 @@ void updateDisplay() {
     redrawLine(lineY, "Townsfolk: ", String(townsfolk), ALIVE_COLOR);
 
     lineY+=24;
-    redrawLine(lineY, " ", " ", BACKGROUND);
+    redrawLine(lineY, "IP: ", WiFi.localIP().toString(), TEXT_COLOR);
 
-    lineY+=24;
-    redrawLine(lineY, " ", " ", BACKGROUND);
   }
   tft.setTextColor(TEXT_COLOR);
   displayNeedsRefresh = false;
@@ -198,8 +203,6 @@ void saveState() {
 
   f.close();
 }
-
-
 
 void loadState() {
   if (!SPIFFS.exists(CONFIG_FILE)) {
@@ -244,19 +247,55 @@ void loadState() {
   Serial.println("State loaded successfully.");
 }
 
-
-
+// Modified updateLEDs function for LED strip
 void updateLEDs() {
-  for (int i = 0; i < NUM_PLAYERS; i++) {
-    CRGB color = CRGB::Black;
-    if (playerStates[i] == ALIVE) color = isTraveller[i] ? CRGB::Yellow : CRGB::Green;
-    else if (playerStates[i] == DEAD_WITH_VOTE) color = CRGB::Blue;
-    else if (playerStates[i] == DEAD_NO_VOTE) color = CRGB(80, 0, 80);
-    for (int j = 0; j < LEDS_PER_PLAYER; j++) {
-      leds[(i * LEDS_PER_PLAYER) + j] = color;
-    }
+  // First, turn off all LEDs
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB::Black;
   }
+  
+  // Set colors for active player LEDs (every other LED)
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    int ledIndex = getPlayerLEDIndex(i);
+    CRGB color = CRGB::Black;
+    
+    if (playerStates[i] == ALIVE) {
+      color = isTraveller[i] ? CRGB::Yellow : CRGB::Green;
+    } else if (playerStates[i] == DEAD_WITH_VOTE) {
+      color = CRGB::Blue;
+    } else if (playerStates[i] == DEAD_NO_VOTE) {
+      color = CRGB(80, 0, 80); // Purple
+    }
+    
+    leds[ledIndex] = color;
+  }
+  
   FastLED.show();
+}
+
+// Optional: Function to create visual effects using the unused LEDs
+void playWinAnimation(bool evilWins) {
+  CRGB winColor = evilWins ? CRGB::Red : CRGB::Blue;
+  
+  // Fill all LEDs with win color in sequence
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = winColor;
+    FastLED.show();
+    delay(50);
+  }
+  
+  // Flash effect
+  for (int flash = 0; flash < 3; flash++) {
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    FastLED.show();
+    delay(200);
+    fill_solid(leds, NUM_LEDS, winColor);
+    FastLED.show();
+    delay(200);
+  }
+  
+  // Return to normal state
+  updateLEDs();
 }
 
 String getHTMLStyles() {
@@ -280,6 +319,12 @@ String getHTMLStyles() {
         font-family: 'Times New Roman', serif;
         font-size: 2.5em;
         text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      }
+      .version-info {
+        text-align: center;
+        color: #888;
+        margin-bottom: 20px;
+        font-style: italic;
       }
       .controls {
         background-color: #1e1e1e;
@@ -307,6 +352,17 @@ String getHTMLStyles() {
         border-bottom: 1px solid #444;
         padding-bottom: 8px;
       }
+      .led-info {
+        background-color: #1a3a1a;
+        border: 1px solid #2a5a2a;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+      }
+      .led-info h4 {
+        margin-top: 0;
+        color: #55bb55;
+      }
       .player-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -322,6 +378,19 @@ String getHTMLStyles() {
         max-width: 100%;
         display: flex;
         flex-direction: column;
+        position: relative;
+      }
+      .player::before {
+        content: attr(data-led-position);
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        background-color: #555;
+        color: #fff;
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 10px;
+        font-weight: bold;
       }
       .player:hover {
         transform: translateY(-5px);
@@ -735,7 +804,9 @@ String generateHTMLPage() {
   html += "<title>BOTC Townsquare " + String(APP_VERSION) + "</title>";
   html += getHTMLStyles();
   html += "</head><body>";
-  html += "<h1>BOTC Townsquare " + String(APP_VERSION) + "</h1>";
+  html += "<h1>BOTC Townsquare</h1>";
+  html += "<div class='version-info'>" + String(APP_VERSION);
+  html += "</div>";
   
   // Game Controls Section
   html += "<div class='controls'>";
@@ -777,7 +848,7 @@ String generateHTMLPage() {
       else if (playerStates[i] == DEAD_NO_VOTE) statusClass = "status-purple";
     }
     
-    html += "<div class='player " + statusClass + "'>";
+    html += "<div class='player " + statusClass + "' data-led-position='LED " + String(getPlayerLEDIndex(i)) + "'>";
     
     html += "<input type='text' class='player-name' data-player='" + String(i) + "' value='" + playerNames[i] + "' " + (playerActive[i] ? "disabled" : "") + ">";
 
@@ -974,7 +1045,7 @@ void handleResurrect() {
   server.send(200, "text/plain", "OK");
 }
 
-// API: End game with result
+// API: End game with result - Enhanced with LED strip animation
 void handleEnd() {
   if (server.hasArg("result")) {
     gameEnded = true;
@@ -982,14 +1053,8 @@ void handleEnd() {
     evilWon = server.arg("result") == "evil";
     saveState();
 
-    for (int i = 0; i < NUM_PLAYERS; i++) {
-      CRGB color = evilWon ? CRGB::Red : CRGB::Blue;
-      for (int j = 0; j < LEDS_PER_PLAYER; j++) {
-        leds[(i * LEDS_PER_PLAYER) + j] = color;
-      }
-      FastLED.show();
-      delay(100);
-    }
+    // Play win animation using the LED strip
+    playWinAnimation(evilWon);
   }
   server.send(200, "text/plain", "OK");
   displayNeedsRefresh = true;
@@ -999,6 +1064,8 @@ void handleEnd() {
 // API: Clear saved state and reset
 void handleClear() {
   SPIFFS.remove(CONFIG_FILE);
+  
+  // Clear all LEDs
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = CRGB::Black;
   }
@@ -1101,6 +1168,7 @@ void setup() {
   Serial.println("=================================");
   Serial.println("BOTC Townsquare Controller");
   Serial.println(APP_VERSION);
+  Serial.println("LED Strip Mode - 40 LEDs");
   Serial.println("=================================");
 
   SPIFFS.begin(true);
@@ -1112,11 +1180,14 @@ void setup() {
   tft.println("Initializing file system...");
   setupFileSystem();
   
-  // Setup LEDs
-  tft.println("Initializing LEDs...");
+  // Setup LEDs - Modified for LED strip
+  tft.println("Initializing LED strip...");
   FastLED.addLeds<WS2812, DATA_PIN, GRB>(leds, NUM_LEDS);
   FastLED.clear();
   FastLED.show();
+  
+  // Optional: Set maximum brightness to prevent power issues
+  FastLED.setBrightness(128); // 50% brightness
 
   // Initialize player states
   for (int i = 0; i < NUM_PLAYERS; i++) {
@@ -1141,6 +1212,17 @@ void setup() {
   // Update display with initial game state
   displayNeedsRefresh = true;
   updateDisplay();
+  
+  Serial.println("System ready!");
+  Serial.print("LED mapping: ");
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    Serial.print("P");
+    Serial.print(i + 1);
+    Serial.print("→LED");
+    Serial.print(getPlayerLEDIndex(i));
+    if (i < NUM_PLAYERS - 1) Serial.print(", ");
+  }
+  Serial.println();
 }
 
 void loop() {

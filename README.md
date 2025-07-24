@@ -1,49 +1,45 @@
-# Blood on the Clocktower Town Square Controller
+# Blood on the Clocktower Town Square Controller - LED Strip Version
 
 ## Overview
-This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a network of 3-LED rings (one ring per player) to visually represent player status in the game, along with a color LCD display and web interface for game management.
-
-<table>
-<tr>
-<td colspan=2>
-<img src="images/controller.jpg" width="400" alt="Controller Hardware">
-</td>
-</tr>
-<tr>
-<td>
-<img src="images/led-front.jpg" width="100" alt="LED Hardware front">
-<img src="images/led-back.jpg" width="100" alt="LED Hardware back">
-</td>
-<td>
-<img src="images/ESP32-C6-LCD-1.47-details-05.jpg" width="300" alt="ESP32 pin layout">
-<img src="images/ESP32-C6-LCD-1.47-details-07.jpg" width="300" alt="ESP32 Measurements">
-</td>
-</tr>
-</table>
+This project is an ESP32-C6 based controller for managing a physical town square for the social deduction game "Blood on the Clocktower". It uses a single 40-LED WS2812 strip (using every other LED for players) to visually represent player status in the game, along with a color LCD display and web interface for game management.
 
 ## Hardware Components
-- **ESP32-C6** microcontroller
-- **ST7789 Color LCD Display** (172x320) with SPI interface
-- **WS2812 RGB LED Rings** - 3-bit LED WS2812 5050 with integrated drivers (17mm diameter, 5V) - one ring per player, connected in a chain (up to 20 players supported)
-- Power supply (5V recommended for stable LED operation)
+- **ESP32-C6** microcontroller with ST7789 LCD (172x320)
+- **40-LED WS2812 RGB Strip** (5V) - only uses every other LED for players (20 total player positions)
+- **Logic Level Shifter** (3.3V to 5V) - TXS0108E recommended
+- **Power supply** (5V, 2A minimum recommended)
+- **Capacitor** (1000μF, 10V+) for power filtering
+- **Resistor** (300-500Ω) for data line protection
 
 ## Features
-- **LED Player Indicators**: Each player is represented by a 3-LED disk with colors indicating their game status:
-  - Green: Alive player
-  - Yellow: Alive traveller
-  - Blue: Dead with voting token
-  - Purple: Dead without voting token
-  - Red/Blue: Game ended (Evil/Good win)
+- **LED Player Indicators**: Each player is represented by one LED with colors indicating their game status:
+  - **Green**: Alive player
+  - **Yellow**: Alive traveller  
+  - **Blue**: Dead with voting token
+  - **Purple**: Dead without voting token
+  - **Red/Blue**: Game ended (Evil/Good win with full strip animation)
+  
+- **LED Mapping**: 
+  - Player 1 → LED 0
+  - Player 2 → LED 2  
+  - Player 3 → LED 4
+  - Player 4 → LED 6
+  - ... and so on
+  - LEDs 1, 3, 5, 7, etc. remain off (available for future effects)
+
+- **Enhanced Animations**: Win conditions trigger full strip light shows using all 40 LEDs
   
 - **ST7789 Display**: Shows game status information including:
   - Game state (Not started, In progress, Game over)
   - Win condition (if game ended)
   - Role distribution (Townsfolk, Outsiders, Minions, Demon)
+  - LED strip configuration info
   
 - **Web Interface**: Access via any browser connected to the same network
   - Responsive design that works on mobile devices
   - Real-time game state updates using AJAX
   - Player management (add/remove players, rename players)
+  - Shows LED position for each player (e.g., "LED 0", "LED 2")
   - Traveller status toggling
   - Game state control (start/end/reset game)
   
@@ -63,9 +59,86 @@ This project is an ESP32-C6 based controller for managing a physical town square
 3. Follow the portal instructions to connect the device to your local WiFi
 4. Note the IP address displayed on the ST7789 screen
 
+## Hardware Setup
+
+### Components Needed
+- ESP32-C6 development board with integrated ST7789 display
+- 1× WS2812 RGB LED Strip (40 LEDs, 5V, 60 LEDs/meter works well)
+- TXS0108E Logic Level Shifter Module
+- 5V 2A power supply (3A recommended for safety margin)
+- 1000μF capacitor (10V or higher)
+- 300-500Ω resistor
+- 10kΩ pull-up resistor (optional)
+- Breadboard or PCB for connections
+- Wires and connectors
+
+### Circuit Diagram
+
+```
+[5V Power Supply] ----+---- [1000μF Capacitor] ---- [GND]
+                      |
+                      +---- [LED Strip 5V] ---- [All 40 LEDs in series]
+                      |                    |
+                      +---- [TXS0108E VB]   +---- [LED Strip GND]
+                      |                           |
+[ESP32-C6 3.3V] ---- [TXS0108E VA] ---- [TXS0108E OE]
+                      |                           |
+[ESP32-C6 GPIO3] ---- [TXS0108E A1]               |
+                      |                           |
+[TXS0108E B1] ---- [300Ω Resistor] ---- [LED Strip Data In]
+                      |                           |
+[ESP32-C6 GND] ---- [TXS0108E GND] ---- [Common GND] ----+
+```
+
+### Wiring Steps
+
+1. **Power Connections**:
+   - Connect 5V power supply positive to LED strip 5V and TXS0108E VB pin
+   - Connect all grounds together (power supply, ESP32, TXS0108E, LED strip)
+   - Connect 1000μF capacitor across 5V and GND near the LED strip
+
+2. **Level Shifter Setup**:
+   - TXS0108E VA pin → ESP32-C6 3.3V
+   - TXS0108E VB pin → 5V power supply
+   - TXS0108E OE pin → 3.3V (enable the chip)
+   - TXS0108E GND → Common ground
+
+3. **Data Signal**:
+   - ESP32-C6 GPIO3 → TXS0108E A1 pin
+   - TXS0108E B1 pin → 300Ω resistor → LED strip data input
+
+4. **ESP32-C6 Display**: Already integrated on the board with correct pin connections
+
+### LED Strip Positioning
+
+For a circular town square setup:
+- Position LED 0 at "12 o'clock" (Player 1)
+- LED 2 at "1 o'clock" position (Player 2)  
+- LED 4 at "2 o'clock" position (Player 3)
+- Continue clockwise around the circle
+- The unused LEDs (1, 3, 5, etc.) can be positioned between players or used for decorative spacing
+
+### Power Considerations
+
+- **LED Power Draw**: Each WS2812 LED can draw up to 60mA at full brightness
+- **Theoretical Maximum**: 40 LEDs × 60mA = 2.4A
+- **Practical Usage**: With the color mixing used (~1A typical)
+- **Recommended Supply**: 5V 2A minimum, 5V 3A for reliability and future expansion
+- **Brightness Limiting**: Code sets brightness to 50% (128/255) by default to reduce power consumption
+
+### Safety Notes
+
+- **Power Supply Sizing**: Ensure your 5V supply can handle the current requirements
+- **Voltage Drop**: For strips longer than 1 meter, consider injecting power at both ends
+- **Capacitor Placement**: Keep the large capacitor close to the LED strip power input
+- **Hot Plugging**: Never connect/disconnect while powered on
+
 ## Web Interface
 
-![Web Interface](images/web-interface.png)
+The web interface now shows:
+- LED position indicator for each player (e.g., "LED 0", "LED 2")
+- LED strip configuration information
+- Enhanced visual feedback during win animations
 
 ### Web Interface Access
 1. Connect to the same WiFi network as the device
@@ -75,7 +148,7 @@ This project is an ESP32-C6 based controller for managing a physical town square
 ## Game Management
 
 ### Player Status Control
-- Each player has their own card in the web interface
+- Each player card shows their LED position (LED 0, LED 2, LED 4, etc.)
 - Click the status button to cycle through player states:
   - Not in play → Alive → Dead with vote → Dead without vote → Not in play
 - Check the "Traveller" box to mark a player as a traveller (yellow LED instead of green)
@@ -83,132 +156,74 @@ This project is an ESP32-C6 based controller for managing a physical town square
 
 ### Game Controls
 - **Start Game**: Begins the game and updates the role distribution
-- **Good/Evil Wins**: Ends the game and triggers the winning team's light show
+- **Good/Evil Wins**: Ends the game and triggers the winning team's light show across all 40 LEDs
 - **Reset Game**: Resets the game state without clearing player names
 - **Clear All**: Completely resets all data including player names
 
-### Role Calculation
-The system automatically calculates the recommended role distribution based on the number of active players according to the official Blood on the Clocktower rules.
+### Enhanced Win Animations
+When a game ends, the system now plays dramatic animations using all 40 LEDs:
+- **Sequential Fill**: LEDs light up in sequence with the winning team's color
+- **Flash Effect**: Full strip flashes 3 times
+- **Return to Normal**: Returns to showing only active player states
 
 ## Technical Notes
 
 ### LED Configuration
-- Each player uses one 17mm WS2812 RGB LED Ring (3-bit LED WS2812 5050 with integrated drivers)
-- The LED rings are connected in a chain (DATA OUT to DATA IN of the next ring)
-- Default configuration supports up to 20 players (60 LEDs total, 3 per ring)
-- Data pin is connected to GPIO3
-- Operating voltage: 5V
-
-### Circuit Diagram and Setup
-
-#### Components Needed
-- ESP32-C6 development board
-- 20× WS2812 RGB LED Rings (17mm, 3-bit)
-- Logic level shifter (3.3V to 5V)
-- 5V power supply (minimum 2A recommended)
-- 1000μF capacitor (10V or higher)
-- 300-500Ω resistor
-- 10kΩ pull-up resistor
-- Optional: separate 3.3V regulator for ESP32
-
-#### Circuit Setup
-```
-[Power Supply 5V] ----+---- [1000μF Capacitor] ---- [GND]
-                      |
-                      +---- [5V input for all LED Rings]
-                      |
-                      +---- [TXS0108E VB pin]
-                      |
-                      +---- [Optional 3.3V Regulator] ---- [ESP32-C6 3.3V] ---- [TXS0108E VA pin] ---- [TXS0108E OE pin]
-                      
-[ESP32-C6 GPIO3] ---- [TXS0108E A1 pin]
-[TXS0108E B1 pin] ---- [300-500Ω Resistor] ---- [WS2812 Ring #1 DATA IN]
-[WS2812 Ring #1 DATA OUT] ---- [WS2812 Ring #2 DATA IN]
-... and so on for all rings ...
-
-[ESP32-C6 GND] ---- [TXS0108E GND] ---- [LED Rings GND] ---- [Power Supply GND]
-```
-
-#### Level Shifter
-Since the ESP32-C6 operates at 3.3V logic and the WS2812 LED rings require 5V logic signals, a level shifter is necessary:
-
-**Recommended: TXS0108E Bi-Directional Level Shifter Module**
-- Perfect for this application as it provides clean signal conversion
-- Connect as follows:
-  - VA pin to ESP32-C6 3.3V
-  - VB pin to 5V power supply
-  - GND to common ground
-  - A1 pin to ESP32-C6 GPIO3
-  - B1 pin to the first WS2812 LED ring's data input
-  - OE pin to 3.3V (to enable the chip)
-- The TXS0108E has 8 channels, so you can use the remaining channels for other signals if needed
-
-Alternative options:
-- 74HCT245 or 74AHCT125 ICs
-- Simple single-channel level shifter using a BSS138 MOSFET
-
-#### Power Considerations
-- Each WS2812 LED can draw up to 60mA at full brightness (white)
-- Total maximum current: 60 LED × 60mA = 3.6A theoretical maximum
-- In practice, with color mixing and not all LEDs at full white:
-  - Typical usage: ~1-2A for 20 rings
-  - Recommended power supply: 5V 2A minimum, 5V 3A for reliability
-- Use a capacitor (1000μF, 10V+) across power and ground near the first LED ring to filter power spikes
-- For longer chains, consider injecting power at multiple points (every 7-10 rings)
-
-#### Signal Integrity
-- Add a 300-500Ω resistor between the level shifter output and the first LED ring's data input
-- Keep data wires as short as possible
-- For longer runs, use twisted pair wiring
-- Consider adding a 10kΩ pull-up resistor from the data line to 5V
-
-#### Safety Notes
-- Never connect or disconnect LED rings while power is applied
-- If using a shared power supply, ensure your 5V rail can handle the current
-- For portable applications, add reverse polarity protection
+- **Total LEDs**: 40 in a single WS2812 strip
+- **Player LEDs**: Every other LED (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38)
+- **Unused LEDs**: 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39
+- **Data Pin**: GPIO3
+- **Operating Voltage**: 5V
+- **Brightness**: Set to 50% (128/255) by default
 
 ### Display Configuration
-- ST7789 172x320 display 
-- Pins:
-  - CS: GPIO14
-  - DC: GPIO15
-  - RST: GPIO21
-  - MOSI: GPIO6
-  - SCLK: GPIO7
-  - BL (Backlight): GPIO22
+- ST7789 172x320 display (integrated on ESP32-C6 board)
+- Shows LED strip configuration and active LED count
 
-### Customization
-You can modify the following constants in the code to adapt to your setup:
+### Customization Options
+
+You can modify these constants in the code:
 - `NUM_PLAYERS`: Maximum number of players (default 20)
-- `LEDS_PER_PLAYER`: LEDs per disk (default 3)
-- Display colors and pin assignments
+- `NUM_LEDS`: Total LEDs in strip (default 40)
+- `FastLED.setBrightness()`: Adjust brightness (default 128 = 50%)
+- `getPlayerLEDIndex()`: Modify LED mapping if needed
+
+### Advantages of LED Strip Design
+
+1. **Simplified Wiring**: Single data connection instead of chaining multiple rings
+2. **Better Power Distribution**: Single power injection point
+3. **Enhanced Effects**: Can use unused LEDs for animations and effects
+4. **Easier Mounting**: Single strip is easier to position in a circle
+5. **Lower Cost**: Single strip typically costs less than 20 individual rings
+6. **Future Expansion**: Unused LEDs available for special effects or indicators
 
 ## Troubleshooting
 
 ### Common Issues
-- If the device doesn't appear on the network, check the display for error messages
-- If LEDs don't light up, verify power supply can handle the current requirements
-- To factory reset, use the "Clear All" button in the web interface
+- **No LEDs lighting**: Check 5V power supply and data signal connections
+- **Wrong colors**: Verify GRB color order in FastLED configuration
+- **Flickering**: Add or upgrade the 1000μF capacitor near LED strip power input
+- **Partial strip working**: Check for voltage drop along the strip
+- **WiFi issues**: Check display for error messages, use "Clear All" to reset
 
-### LED Ring Issues
-- **First LED works but others don't**: Check data connections between rings
-- **Random flickering**: 
-  - Add or upgrade the capacitor near the power input (1000μF minimum)
-  - Verify the level shifter is working correctly
-  - Check for loose connections
-- **Colors incorrect**: Verify the LED type in code (GRB vs RGB ordering)
-- **Dim LEDs**: 
-  - Check power supply voltage under load (should be 4.8V-5.2V)
-  - Measure voltage at the furthest LED ring (voltage drop)
-- **Data corruption**: 
-  - Verify the 300-500Ω resistor is in place on the data line
-  - Keep data wires away from noise sources
-  - Try shorter or better quality wires
+### LED Strip Specific Issues
+- **Every other LED not working as expected**: Verify the `getPlayerLEDIndex()` function
+- **Animations not smooth**: Check power supply capacity and brightness settings
+- **Heat issues**: Reduce brightness or improve ventilation around power supply
 
-### Power Issues
-- **LEDs draw too much current**: Set a brightness limit in the code (`FastLED.setBrightness()`)
-- **ESP32 resets when LEDs activate**: Use separate power supplies or add more capacitors
-- **Power supply overheating**: Upgrade to a higher rated power supply
+### Power Supply Troubleshooting
+- **LEDs dim**: Measure voltage at strip (should be 4.8V-5.2V under load)
+- **ESP32 resets**: Use separate power supply or add more capacitance
+- **Strip cutting out**: Upgrade power supply capacity
+
+## Future Enhancements
+
+With 20 unused LEDs available, potential additions include:
+- **Vote countdown timer**: Use unused LEDs as a visual timer
+- **Player spotlight**: Highlight current speaker
+- **Phase indicators**: Show day/night phases
+- **Custom role indicators**: Special colors for specific roles
+- **Sound-reactive effects**: Respond to ambient noise levels
 
 ## Credits
 Designed for use with "Blood on the Clocktower" by The Pandemonium Institute
